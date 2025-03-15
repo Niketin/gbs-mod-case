@@ -18,10 +18,15 @@ from ocp_vscode import (
     set_port,
     set_defaults,
     get_defaults,
+    Camera,
 )
 set_defaults(helper_scale=1, transparent=True)
 set_port(3939)
 
+@dataclass(frozen=True)
+class M3:
+    major_diameter: float = 3.0
+    minor_diameter: float = 2.459
 
 def location_symbol(self, l=1) -> Compound:
     return Compound.make_triad(axes_scale=l).locate(self)
@@ -42,7 +47,7 @@ class Pcb:
     thickness: float = 1.68
 
 
-hole_diameter = 3.50
+hole_diameter = 3.50 # Good enough for M3
 hole_radius = hole_diameter / 2
 hole_distance = 3.75
 
@@ -114,7 +119,7 @@ with BuildPart() as hdmi_holder_bp:
     @dataclass(frozen=True)
     class AudioJack:
         hole_width: float = 6.6
-        hole_height: float = 26#13 # TODO confirm this, is it 13 or more?
+        hole_height: float = 26
         near_pcb_width: float = 2.76
     audiojack_offset_x = Hdmi.adapter_width / 2 - AudioJack.near_pcb_width - AudioJack.hole_width / 2
     audiojack_hdmi_distance_x = (Hdmi.adapter_width - AudioJack.near_pcb_width) / 2
@@ -147,7 +152,7 @@ with BuildPart() as hdmi_holder_bp:
 
     @dataclass(frozen=True)
     class HdmiHolderScrewHole:
-        radius: float = 1
+        radius: float = M3.minor_diameter / 2
         depth: float = 10
 
     with BuildSketch(front) as hdmi_holder_screw_holes:
@@ -194,6 +199,12 @@ case_inner_pcb_hole_pillar_height = case_inner_bottom_gap_to_pcb
 case_inner_pcb_hole_pillar_radius = hole_radius + 2
 case_inner_pcb_hole_pillar_hole_radius = hole_radius
 
+case_fillet_radius = 5.0
+
+assert case_inner_pcb_hole_pillar_radius > hole_radius
+assert case_inner_pcb_hole_pillar_hole_radius < case_inner_pcb_hole_pillar_radius
+assert case_inner_pcb_hole_pillar_hole_radius <= hole_radius
+
 case_outer_height = 50
 
 
@@ -213,7 +224,6 @@ with BuildPart() as case_bp:
             Circle(radius=case_inner_pcb_hole_pillar_hole_radius, mode=Mode.SUBTRACT)
     extrude(amount=case_inner_pcb_hole_pillar_height)
 
-    asd = case_bp.faces(Select.LAST)
     case_bottom_top_face.center_location
     joint_locations: List[Location] = [Location(Vector(hole[0], hole[1], case_inner_pcb_hole_pillar_height) + case_bottom_top_face.center_location.position) for hole in holes]
 
@@ -227,14 +237,18 @@ with BuildPart() as case_bp:
     case_back_wall_outer_face: Face = case_bp.faces().sort_by(Axis.Y)[-1]
     case_right_wall_outer_face: Face = case_bp.faces().sort_by(Axis.X)[-1]
     case_left_wall_outer_face: Face = case_bp.faces().sort_by(Axis.X)[0]
+    case_top_outer_face: Face = case_bp.faces().sort_by(Axis.Z)[-1]
+
 
     case_front_wall_inner_face: Face = case_bp.faces().filter_by(Axis.Y).sort_by(Axis.Y)[1]
     case_back_wall_inner_face: Face = case_bp.faces().filter_by(Axis.Y).sort_by(-Axis.Y)[1]
     case_left_wall_inner_face: Face = case_bp.faces().filter_by(Axis.X).sort_by(Axis.X)[1]
+    case_right_wall_inner_face: Face = case_bp.faces().filter_by(Axis.X).sort_by(-Axis.X)[1]
 
     front_inner_face_plane: Plane = Plane(case_front_wall_inner_face).rotated((0,-90,0))
     back_inner_face_plane: Plane = Plane(case_back_wall_inner_face).rotated((0,90,0))
     left_inner_face_plane: Plane = Plane(case_left_wall_inner_face).rotated((-90,0,0))
+    right_inner_face_plane: Plane = Plane(case_right_wall_inner_face).rotated((90,0,0))
 
     # RCA connector holes
     rca_port_diameter = 8.3
@@ -261,7 +275,7 @@ with BuildPart() as case_bp:
     rca_audio_screw_hole_locations = [
         ShapeList(rca_audio_locations).center().add((0, 7, 0))
     ]
-    rca_audio_screw_hole_radius = 1.5
+    rca_audio_screw_hole_radius = 2.5/2 # M3 size
     with BuildSketch(front_inner_face_plane):
         with Locations(rca_video_locations + rca_audio_locations):
             Circle(radius=rca_port_hole_diameter / 2)
@@ -286,7 +300,7 @@ with BuildPart() as case_bp:
     scart_width = 47.2
     scart_height = 16.4
     scart_ideal_distance_from_pcb_z = 20
-    scart_screw_hole_diam = 2.4
+    scart_screw_hole_diam = 2.4 # ~M3 size
     scart_screw_hole_distance_from_scart_side = 5.7
     scart_from_pcb_left = Vector(
         0,
@@ -321,7 +335,7 @@ with BuildPart() as case_bp:
         hole_distance_from_top = 4
         screw_hole_radius = HdmiHolderScrewHole.radius
         screw_hole_distance = audiojack_hdmi_distance_x
-        offset_y_from_pcb = 28.1
+        offset_y_from_pcb = 20#8.1
 
     with BuildSketch(back_inner_face_plane) as hdmi_hole:
         # HDMI connector hole
@@ -344,37 +358,141 @@ with BuildPart() as case_bp:
             Circle(HdmiFemaleConnector.screw_hole_radius)
     extrude(amount=-case_shell_thickness, mode=Mode.SUBTRACT)
 
+    @dataclass(frozen=True)
+    class PowerHole:
+        width = 10.0
+        height = 10.0
+        distance_from_pcb_side_x = 20.65 - width/2
+        distance_from_pcb_side_y = 7.0
+
+    with BuildSketch(back_inner_face_plane) as power_hole:
+        power_hole_from_pcb_back = Vector(case_outer_width / 2 - case_shell_thickness - case_inner_side_gap_to_pcb / 2 - PowerHole.distance_from_pcb_side_x,
+                                          PowerHole.distance_from_pcb_side_y)
+        pcb_location_from_case_back_wall_inner_face = Vector(
+            0,
+            -case_outer_height/2 + case_shell_thickness + case_inner_pcb_hole_pillar_height + Pcb.thickness/2,
+        )
+        power_hole_location = power_hole_from_pcb_back + pcb_location_from_case_back_wall_inner_face
+        with Locations([power_hole_location]):
+            Rectangle(PowerHole.width, PowerHole.height)
+    extrude(amount=-case_shell_thickness, mode=Mode.SUBTRACT)
+
+
+
+    # Here we design the nob for an easy snapping case lid.
+    # Based on tutorial https://www.youtube.com/watch?v=VVmOtM60VWw
+    @dataclass(frozen=True)
+    class Nob:
+        width = case_left_wall_inner_face.bounding_box().size.Y / 2
+        height = 3.0
+        extrusion = height / 2
+        chamfer_length = height / 2 - 0.001
+        location = Location((
+            0, # center
+            case_left_wall_inner_face.bounding_box().size.Z / 2 - height / 2 - 1,
+        ))
+    for plane in [left_inner_face_plane, right_inner_face_plane]:
+        with BuildSketch(plane) as nob:
+            with Locations([Nob.location]):
+                Rectangle(Nob.width, Nob.height)
+        nob_part = extrude(amount=Nob.extrusion)
+        nob_part_right_face = nob_part.faces().filter_by(Axis.X)[-1]
+        nob_part_outer_edges = nob_part_right_face.edges()
+        chamfer(nob_part_outer_edges, length=Nob.chamfer_length, angle=45)
+
+
+
     hdmi_female_hole_location = Location(back_inner_face_plane.from_local_coords(hdmi_connector_hole_location))
     # Rotate hdmi hole by 180 degrees
     hdmi_female_hole_location.orientation = (0, 0, 180)
     RigidJoint(label="HDMI female hole", joint_location=hdmi_female_hole_location)
     # RigidJoint(label="HDMI screw hole 0", joint_location=Location(back_inner_face_plane.from_local_coords(hole_0_location)))
     # RigidJoint(label="HDMI screw hole 1", joint_location=Location(back_inner_face_plane.from_local_coords(hole_1_location)))
+    RigidJoint(label="Lid", joint_location=case_top_outer_face.center_location)
+    outer_vertical_edges = case_front_wall_outer_face.edges().filter_by(Axis.Z) + case_back_wall_outer_face.edges().filter_by(Axis.Z)
+    fillet(outer_vertical_edges, radius=case_fillet_radius)
 
-show(case_bp, hdmi_hole, back_inner_face_plane,
-    # location_symbol(Location(front_inner_face_plane.from_local_coords(hdmi_connector_hole_location)), l=10),
+show(
+    case_bp, hdmi_hole, back_inner_face_plane,
+    reset_camera=Camera.KEEP,
     render_joints=True
      )
 # %%
 
-with BuildPart() as case_lid_bp:
-    with BuildSketch(
-        case_bp.faces().sort_by(Axis.Z)[0].__neg__().offset(case_outer_height)
-    ):
+with BuildPart() as top_cover_bp:
+    with BuildSketch():
         Rectangle(case_outer_width, case_outer_length)
     extrude(amount=case_shell_thickness)
 
+    # Helper faces
+    top_cover_front_face: Face = top_cover_bp.faces().sort_by(Axis.Y)[0]
+    top_cover_back_face: Face = top_cover_bp.faces().sort_by(Axis.Y)[-1]
+    top_cover_Bottom_face: Face = top_cover_bp.faces().sort_by(Axis.Z)[0]
 
+    outer_vertical_edges = top_cover_front_face.edges().filter_by(Axis.Z) + top_cover_back_face.edges().filter_by(Axis.Z)
+    fillet(outer_vertical_edges, radius=case_fillet_radius)
 
+    filleted_top_cover_front_face: Face = top_cover_bp.faces().sort_by(Axis.Y)[0]
+    filleted_top_cover_back_face: Face = top_cover_bp.faces().sort_by(Axis.Y)[-1]
+    filleted_top_cover_Bottom_face: Face = top_cover_bp.faces().sort_by(Axis.Z)[0]
 
-# %%
+    # Joint
+    lid_location = top_cover_Bottom_face.center_location
+    lid_location.orientation = (0, 0, 0)
+    RigidJoint(label="Lid", joint_location=lid_location)
+
+    top_cover_gap = ClearanceGap.standard
+    with BuildSketch(top_cover_Bottom_face):
+        offset(top_cover_Bottom_face, amount=-(case_shell_thickness + top_cover_gap))
+    extrude(amount=Nob.height+2)
+
+    extruded_faces = top_cover_bp.faces(Select.LAST)
+    extruded_shape_left_face: Face = extruded_faces.faces().sort_by(Axis.X)[0]
+    extruded_shape_right_face: Face = extruded_faces.faces().sort_by(-Axis.X)[0]
+    extruded_shape_bottom_face: Face = extruded_faces.faces().sort_by(Axis.Z)[0]
+
+    @dataclass(frozen=True)
+    class InverseNob:
+        width = Nob.width
+        height = Nob.height
+        extrusion = -Nob.extrusion
+        chamfer_length = Nob.chamfer_length
+        taper_angle = 44.999
+        location = Location((
+            0, # center
+            case_left_wall_inner_face.bounding_box().size.Z / 2 - height / 2,
+        ))
+
+    for face in [extruded_shape_left_face, extruded_shape_right_face]:
+        with BuildSketch(face) as inverse_nob:
+            Rectangle(InverseNob.width, InverseNob.height)
+        extrude(amount=InverseNob.extrusion, mode=Mode.SUBTRACT, taper=InverseNob.taper_angle)
+
+    split(top_cover_bp.part, Plane(filleted_top_cover_Bottom_face), keep=Keep.BOTH)
+
+    bottom_solid = top_cover_bp.solids()[0]
+    top_solid = top_cover_bp.solids()[1]
+
+    bottom = bottom_solid.faces().sort_by(Axis.Z)[0]
+    offset(objects=bottom_solid, amount=-2, openings=bottom, kind=Kind.INTERSECTION)
+
+    # Ugly ease for the nob, but there is no better way that I know of
+    for face in [extruded_shape_left_face, extruded_shape_right_face]:
+        with BuildSketch(face.moved(Location((0,0,-1)))) as sss:
+            Rectangle(InverseNob.width, InverseNob.height)
+        extrude(amount=-0.6, mode=Mode.SUBTRACT)
+
+    add(top_solid) # It disappears somehow from the part's shape list during the offset operation above
+
 
 
 case = case_bp.part
+top_cover = top_cover_bp.part
 pcb = pcb_bp.part
 hdmi_holder = hdmi_holder_bp.part
 
 case.label="case"
+top_cover.label="top_cover"
 pcb.color=Color(0x046307)
 pcb.label="pcb"
 hdmi_holder.label="hdmi_holder"
@@ -383,9 +501,11 @@ case.joints["HDMI female hole"].connect_to(hdmi_holder.joints["HDMI female conne
 # case.joints["HDMI screw hole 0"].connect_to(hdmi_holder.joints["HDMI right hole"])
 # case.joints["HDMI screw hole 1"].connect_to(hdmi_holder.joints["HDMI right hole"])
 case.joints["PCB pillar front left"].connect_to(pcb.joints["PCB hole front left"])
+case.joints["Lid"].connect_to(top_cover.joints["Lid"])
 
 case_assembly = Compound(label="assembly", children=[
     case,
+    top_cover,
     hdmi_holder,
     pcb,
 ])
@@ -394,7 +514,12 @@ print(case_assembly.show_topology())
 
 
 
-show(case_assembly, back_inner_face_plane, front_inner_face_plane, left_inner_face_plane, render_joints=True)
+show(
+    case_assembly,
+    render_edges=True,
+    render_joints=True,
+    reset_camera=Camera.KEEP,
+)
 # %%
 # show(pp)
 
