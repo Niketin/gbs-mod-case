@@ -23,6 +23,8 @@ from ocp_vscode import (
 set_defaults(helper_scale=1, transparent=True)
 set_port(3939)
 
+use_nob = False
+
 @dataclass(frozen=True)
 class M3:
     major_diameter: float = 3.0
@@ -378,27 +380,27 @@ with BuildPart() as case_bp:
     extrude(amount=-case_shell_thickness, mode=Mode.SUBTRACT)
 
 
-
-    # Here we design the nob for an easy snapping case lid.
-    # Based on tutorial https://www.youtube.com/watch?v=VVmOtM60VWw
-    @dataclass(frozen=True)
-    class Nob:
-        width = case_left_wall_inner_face.bounding_box().size.Y / 2
-        height = 3.0
-        extrusion = height / 2
-        chamfer_length = height / 2 - 0.001
-        location = Location((
-            0, # center
-            case_left_wall_inner_face.bounding_box().size.Z / 2 - height / 2 - 1,
-        ))
-    for plane in [left_inner_face_plane, right_inner_face_plane]:
-        with BuildSketch(plane) as nob:
-            with Locations([Nob.location]):
-                Rectangle(Nob.width, Nob.height)
-        nob_part = extrude(amount=Nob.extrusion)
-        nob_part_right_face = nob_part.faces().filter_by(Axis.X)[-1]
-        nob_part_outer_edges = nob_part_right_face.edges()
-        chamfer(nob_part_outer_edges, length=Nob.chamfer_length, angle=45)
+    if use_nob:
+        # Here we design the nob for an easy snapping case lid.
+        # Based on tutorial https://www.youtube.com/watch?v=VVmOtM60VWw
+        @dataclass(frozen=True)
+        class Nob:
+            width = case_left_wall_inner_face.bounding_box().size.Y / 2
+            height = 3.0
+            extrusion = height / 2
+            chamfer_length = height / 2 - 0.001
+            location = Location((
+                0, # center
+                case_left_wall_inner_face.bounding_box().size.Z / 2 - height / 2 - 1,
+            ))
+        for plane in [left_inner_face_plane, right_inner_face_plane]:
+            with BuildSketch(plane) as nob:
+                with Locations([Nob.location]):
+                    Rectangle(Nob.width, Nob.height)
+            nob_part = extrude(amount=Nob.extrusion)
+            nob_part_right_face = nob_part.faces().filter_by(Axis.X)[-1]
+            nob_part_outer_edges = nob_part_right_face.edges()
+            chamfer(nob_part_outer_edges, length=Nob.chamfer_length, angle=45)
 
 
 
@@ -451,38 +453,39 @@ with BuildPart() as top_cover_bp:
     extruded_shape_right_face: Face = extruded_faces.faces().sort_by(-Axis.X)[0]
     extruded_shape_bottom_face: Face = extruded_faces.faces().sort_by(Axis.Z)[0]
 
-    @dataclass(frozen=True)
-    class InverseNob:
-        width = Nob.width
-        height = Nob.height
-        extrusion = -Nob.extrusion
-        chamfer_length = Nob.chamfer_length
-        taper_angle = 44.999
-        location = Location((
-            0, # center
-            case_left_wall_inner_face.bounding_box().size.Z / 2 - height / 2,
-        ))
+    if use_nob:
+        @dataclass(frozen=True)
+        class InverseNob:
+            width = Nob.width
+            height = Nob.height
+            extrusion = -Nob.extrusion
+            chamfer_length = Nob.chamfer_length
+            taper_angle = 44.999
+            location = Location((
+                0, # center
+                case_left_wall_inner_face.bounding_box().size.Z / 2 - height / 2,
+            ))
 
-    for face in [extruded_shape_left_face, extruded_shape_right_face]:
-        with BuildSketch(face) as inverse_nob:
-            Rectangle(InverseNob.width, InverseNob.height)
-        extrude(amount=InverseNob.extrusion, mode=Mode.SUBTRACT, taper=InverseNob.taper_angle)
+        for face in [extruded_shape_left_face, extruded_shape_right_face]:
+            with BuildSketch(face) as inverse_nob:
+                Rectangle(InverseNob.width, InverseNob.height)
+            extrude(amount=InverseNob.extrusion, mode=Mode.SUBTRACT, taper=InverseNob.taper_angle)
 
-    split(top_cover_bp.part, Plane(filleted_top_cover_Bottom_face), keep=Keep.BOTH)
+        split(top_cover_bp.part, Plane(filleted_top_cover_Bottom_face), keep=Keep.BOTH)
 
-    bottom_solid = top_cover_bp.solids()[0]
-    top_solid = top_cover_bp.solids()[1]
+        bottom_solid = top_cover_bp.solids()[0]
+        top_solid = top_cover_bp.solids()[1]
 
-    bottom = bottom_solid.faces().sort_by(Axis.Z)[0]
-    offset(objects=bottom_solid, amount=-2, openings=bottom, kind=Kind.INTERSECTION)
+        bottom = bottom_solid.faces().sort_by(Axis.Z)[0]
+        offset(objects=bottom_solid, amount=-2, openings=bottom, kind=Kind.INTERSECTION)
 
-    # Ugly ease for the nob, but there is no better way that I know of
-    for face in [extruded_shape_left_face, extruded_shape_right_face]:
-        with BuildSketch(face.moved(Location((0,0,-1)))) as sss:
-            Rectangle(InverseNob.width, InverseNob.height)
-        extrude(amount=-0.6, mode=Mode.SUBTRACT)
+        # Ugly ease for the nob, but there is no better way that I know of
+        for face in [extruded_shape_left_face, extruded_shape_right_face]:
+            with BuildSketch(face.moved(Location((0,0,-1)))) as sss:
+                Rectangle(InverseNob.width, InverseNob.height)
+            extrude(amount=-0.6, mode=Mode.SUBTRACT)
 
-    add(top_solid) # It disappears somehow from the part's shape list during the offset operation above
+        add(top_solid) # It disappears somehow from the part's shape list during the offset operation above
 
 
 
@@ -523,8 +526,16 @@ show(
 # %%
 # show(pp)
 
-for part_builder in [case_bp, hdmi_holder_bp]:
-    export_stl(part_builder.part, f"{part_builder.part.label}.stl")
+printable_objects = [
+    case,
+    hdmi_holder,
+    top_cover,
+]
 
+for part_builder in printable_objects:
+    export_stl(part_builder, f"{part_builder.label}.stl")
+
+# TODO: Add the thin top part to the hdmi holder
+# TODO: Add holes for air ventilation
 
 # %%
