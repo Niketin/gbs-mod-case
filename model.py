@@ -443,7 +443,7 @@ with BuildPart() as top_cover_bp:
     lid_location.orientation = (0, 0, 0)
     RigidJoint(label="Lid", joint_location=lid_location)
 
-    top_cover_gap = ClearanceGap.standard
+    top_cover_gap = ClearanceGap.tight
     with BuildSketch(top_cover_Bottom_face):
         offset(top_cover_Bottom_face, amount=-(case_shell_thickness + top_cover_gap))
     extrude(amount=Nob.height+2)
