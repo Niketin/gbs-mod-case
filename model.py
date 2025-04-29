@@ -380,19 +380,19 @@ with BuildPart() as case_bp:
     extrude(amount=-case_shell_thickness, mode=Mode.SUBTRACT)
 
 
+    @dataclass(frozen=True)
+    class Nob:
+        width = case_left_wall_inner_face.bounding_box().size.Y / 2
+        height = 3.0
+        extrusion = height / 2
+        chamfer_length = height / 2 - 0.001
+        location = Location((
+            0, # center
+            case_left_wall_inner_face.bounding_box().size.Z / 2 - height / 2 - 1,
+        ))
     if use_nob:
         # Here we design the nob for an easy snapping case lid.
         # Based on tutorial https://www.youtube.com/watch?v=VVmOtM60VWw
-        @dataclass(frozen=True)
-        class Nob:
-            width = case_left_wall_inner_face.bounding_box().size.Y / 2
-            height = 3.0
-            extrusion = height / 2
-            chamfer_length = height / 2 - 0.001
-            location = Location((
-                0, # center
-                case_left_wall_inner_face.bounding_box().size.Z / 2 - height / 2 - 1,
-            ))
         for plane in [left_inner_face_plane, right_inner_face_plane]:
             with BuildSketch(plane) as nob:
                 with Locations([Nob.location]):
